@@ -1,6 +1,7 @@
 'use server';
 
 import prisma from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 
 type PaymentMethod = 'CASH' | 'CARD' | 'TRANSFER';
 
@@ -112,125 +113,127 @@ export async function processSale(data: ProcessSaleData) {
       };
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      let totalAmount = 0;
+    const result = await prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        let totalAmount = 0;
 
-      const orderItems = [];
+        const orderItems = [];
 
-      // ============================================
-      // VALIDATE PRODUCTS AND STOCK
-      // ============================================
+        // ============================================
+        // VALIDATE PRODUCTS AND STOCK
+        // ============================================
 
-      for (const item of data.items) {
-        if (!item.productId) {
-          throw new Error('Invalid product');
+        for (const item of data.items) {
+          if (!item.productId) {
+            throw new Error('Invalid product');
+          }
+
+          if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+            throw new Error('Product quantity must be greater than zero');
+          }
+
+          const product = await tx.product.findUnique({
+            where: {
+              id: item.productId,
+            },
+          });
+
+          if (!product) {
+            throw new Error(`Product "${item.productId}" was not found`);
+          }
+
+          if (product.stock < item.quantity) {
+            throw new Error(
+              `Not enough stock for ${product.name}. Available: ${product.stock}`,
+            );
+          }
+
+          // IMPORTANT:
+          // Use sellingPrice from DATABASE.
+          // Never trust a price sent from the browser.
+          const itemTotal = product.sellingPrice * item.quantity;
+
+          totalAmount += itemTotal;
+
+          orderItems.push({
+            productId: product.id,
+            quantity: item.quantity,
+            price: product.sellingPrice,
+          });
         }
 
-        if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
-          throw new Error('Product quantity must be greater than zero');
-        }
+        // ============================================
+        // CREATE ORDER
+        // ============================================
 
-        const product = await tx.product.findUnique({
-          where: {
-            id: item.productId,
+        const order = await tx.order.create({
+          data: {
+            totalAmount,
+            paymentMethod: data.paymentMethod,
+            staffId: data.staffId,
+
+            items: {
+              create: orderItems,
+            },
           },
-        });
 
-        if (!product) {
-          throw new Error(`Product "${item.productId}" was not found`);
-        }
-
-        if (product.stock < item.quantity) {
-          throw new Error(
-            `Not enough stock for ${product.name}. Available: ${product.stock}`,
-          );
-        }
-
-        // IMPORTANT:
-        // Use sellingPrice from DATABASE.
-        // Never trust a price sent from the browser.
-        const itemTotal = product.sellingPrice * item.quantity;
-
-        totalAmount += itemTotal;
-
-        orderItems.push({
-          productId: product.id,
-          quantity: item.quantity,
-          price: product.sellingPrice,
-        });
-      }
-
-      // ============================================
-      // CREATE ORDER
-      // ============================================
-
-      const order = await tx.order.create({
-        data: {
-          totalAmount,
-          paymentMethod: data.paymentMethod,
-          staffId: data.staffId,
-
-          items: {
-            create: orderItems,
-          },
-        },
-
-        include: {
-          items: {
-            include: {
-              product: {
-                select: {
-                  id: true,
-                  name: true,
-                  sku: true,
+          include: {
+            items: {
+              include: {
+                product: {
+                  select: {
+                    id: true,
+                    name: true,
+                    sku: true,
+                  },
                 },
               },
             },
-          },
 
-          staff: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-            },
-          },
-        },
-      });
-
-      // ============================================
-      // REDUCE STOCK
-      // ============================================
-
-      for (const item of data.items) {
-        const updatedProduct = await tx.product.updateMany({
-          where: {
-            id: item.productId,
-
-            // This protects against stock becoming
-            // negative if another sale happens
-            // simultaneously.
-            stock: {
-              gte: item.quantity,
-            },
-          },
-
-          data: {
-            stock: {
-              decrement: item.quantity,
+            staff: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+              },
             },
           },
         });
 
-        if (updatedProduct.count === 0) {
-          throw new Error(
-            'Stock changed while processing the sale. Please try again.',
-          );
-        }
-      }
+        // ============================================
+        // REDUCE STOCK
+        // ============================================
 
-      return order;
-    });
+        for (const item of data.items) {
+          const updatedProduct = await tx.product.updateMany({
+            where: {
+              id: item.productId,
+
+              // This protects against stock becoming
+              // negative if another sale happens
+              // simultaneously.
+              stock: {
+                gte: item.quantity,
+              },
+            },
+
+            data: {
+              stock: {
+                decrement: item.quantity,
+              },
+            },
+          });
+
+          if (updatedProduct.count === 0) {
+            throw new Error(
+              'Stock changed while processing the sale. Please try again.',
+            );
+          }
+        }
+
+        return order;
+      },
+    );
 
     return {
       success: true,
