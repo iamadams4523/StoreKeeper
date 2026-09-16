@@ -1,9 +1,6 @@
-// app/admin/inventory/page.tsx
-
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Search,
   Plus,
@@ -13,7 +10,6 @@ import {
   TrendingUp,
   DollarSign,
   X,
-  Building2,
 } from 'lucide-react';
 
 import {
@@ -22,8 +18,6 @@ import {
   updateProduct,
   deleteProduct,
 } from '@/app/actions/inventory';
-
-import { getAllBranches } from '@/app/actions/branch';
 
 interface Product {
   id: string;
@@ -38,74 +32,21 @@ interface Product {
   updatedAt?: Date;
 }
 
-interface Branch {
-  id: string;
-  name: string;
-  status: 'ACTIVE' | 'INACTIVE';
-}
-
 export default function InventoryPage() {
-  const searchParams = useSearchParams();
-  const router = useRouter();
-
-  const branchId = searchParams.get('branchId') || undefined;
-
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [isLoadingBranches, setIsLoadingBranches] = useState(true);
-
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
 
+  // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
-  // =========================================================
-  // LOAD BRANCH LIST (so we can offer a picker if none is set)
-  // =========================================================
-
+  // Fetch inventory
   useEffect(() => {
-    async function loadBranches() {
-      const result = await getAllBranches();
-
-      if (result.success && result.data) {
-        setBranches(
-          result.data
-            .filter((b) => b.status === 'ACTIVE')
-            .map((b) => ({ id: b.id, name: b.name, status: b.status })),
-        );
-      }
-
-      setIsLoadingBranches(false);
-    }
-
-    loadBranches();
-  }, []);
-
-  // =========================================================
-  // SELECT A BRANCH (updates the URL, doesn't lose the page)
-  // =========================================================
-
-  const handleSelectBranch = (id: string) => {
-    router.push(`/admin/inventory?branchId=${encodeURIComponent(id)}`);
-  };
-
-  // =========================================================
-  // FETCH INVENTORY — only runs once a branchId is present
-  // =========================================================
-
-  useEffect(() => {
-    if (!branchId) {
-      setIsLoading(false);
-      return;
-    }
-
     async function fetchInventory() {
       try {
-        setIsLoading(true);
-
-        const result = await getAllProducts(branchId);
+        const result = await getAllProducts();
 
         if (result.success) {
           setProducts(result.data ?? []);
@@ -122,8 +63,9 @@ export default function InventoryPage() {
     }
 
     fetchInventory();
-  }, [branchId]);
+  }, []);
 
+  // Filter products
   const filteredProducts = useMemo(() => {
     return products.filter((product) => {
       const query = searchQuery.toLowerCase();
@@ -139,6 +81,7 @@ export default function InventoryPage() {
     });
   }, [products, searchQuery, categoryFilter]);
 
+  // Analytics
   const totalCostValue = useMemo(
     () => products.reduce((acc, curr) => acc + curr.costPrice * curr.stock, 0),
     [products],
@@ -150,21 +93,25 @@ export default function InventoryPage() {
     [products],
   );
 
+  // Categories
   const categories = [
     'All',
     ...Array.from(new Set(products.map((p) => p.category))),
   ];
 
+  // Open add modal
   const handleOpenAdd = () => {
     setEditingProduct(null);
     setIsModalOpen(true);
   };
 
+  // Open edit modal
   const handleOpenEdit = (product: Product) => {
     setEditingProduct(product);
     setIsModalOpen(true);
   };
 
+  // Save product
   const handleSaveProduct = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
@@ -176,10 +123,6 @@ export default function InventoryPage() {
       if (editingProduct) {
         saveResult = await updateProduct(editingProduct.id, formData);
       } else {
-        if (branchId) {
-          formData.set('branchId', branchId);
-        }
-
         saveResult = await createProduct(formData);
       }
 
@@ -188,7 +131,7 @@ export default function InventoryPage() {
         return;
       }
 
-      const result = await getAllProducts(branchId);
+      const result = await getAllProducts();
 
       if (result.success) {
         setProducts(result.data ?? []);
@@ -197,13 +140,13 @@ export default function InventoryPage() {
       }
 
       setIsModalOpen(false);
-      setEditingProduct(null);
     } catch (error) {
       console.error('Error saving product:', error);
       alert('Failed to save product. Please try again.');
     }
   };
 
+  // Delete product
   const handleDelete = async (id: string) => {
     if (
       !confirm(
@@ -221,7 +164,7 @@ export default function InventoryPage() {
         return;
       }
 
-      const result = await getAllProducts(branchId);
+      const result = await getAllProducts();
 
       if (result.success) {
         setProducts(result.data ?? []);
@@ -234,59 +177,7 @@ export default function InventoryPage() {
     }
   };
 
-  // =========================================================
-  // NO BRANCH SELECTED — show a picker instead of erroring
-  // =========================================================
-
-  if (!branchId) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
-        <div className="w-full max-w-md bg-white rounded-xl border border-slate-200 shadow-sm p-6 sm:p-8">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-3 rounded-lg bg-indigo-50 text-indigo-600">
-              <Building2 size={22} />
-            </div>
-
-            <div>
-              <h2 className="font-bold text-slate-900">Select a Branch</h2>
-              <p className="text-sm text-slate-500">
-                Choose which branch&apos;s inventory to manage.
-              </p>
-            </div>
-          </div>
-
-          {isLoadingBranches ? (
-            <div className="py-6 text-center text-sm text-slate-500">
-              Loading branches...
-            </div>
-          ) : branches.length === 0 ? (
-            <div className="py-6 text-center text-sm text-slate-500">
-              No active branches yet. Create one in Branch Management first.
-            </div>
-          ) : (
-            <select
-              onChange={(e) =>
-                e.target.value && handleSelectBranch(e.target.value)
-              }
-              defaultValue=""
-              className="w-full h-11 border border-slate-200 rounded-lg px-3 text-sm outline-none focus:border-indigo-500"
-            >
-              <option value="" disabled>
-                Select a branch...
-              </option>
-
-              {branches.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-      </div>
-    );
-  }
-
+  // Loading state
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -307,37 +198,23 @@ export default function InventoryPage() {
               </h1>
 
               <p className="mt-1 text-sm sm:text-base text-slate-500">
-                {branches.find((b) => b.id === branchId)?.name ?? 'Branch'}{' '}
-                &middot; products, stock, and pricing.
+                Manage your store&apos;s products, stock, and pricing.
               </p>
             </div>
 
-            <div className="flex gap-2">
-              <select
-                value={branchId}
-                onChange={(e) => handleSelectBranch(e.target.value)}
-                className="h-11 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-500"
-              >
-                {branches.map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {branch.name}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                type="button"
-                onClick={handleOpenAdd}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-              >
-                <Plus className="h-4 w-4" />
-                Add Product
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleOpenAdd}
+              className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            >
+              <Plus className="h-4 w-4" />
+              Add Product
+            </button>
           </div>
 
           {/* ================= ANALYTICS ================= */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 sm:gap-6">
+            {/* Total Items */}
             <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
               <div className="shrink-0 rounded-lg bg-indigo-50 p-3 text-indigo-600">
                 <Package className="h-5 w-5 sm:h-6 sm:w-6" />
@@ -354,6 +231,7 @@ export default function InventoryPage() {
               </div>
             </div>
 
+            {/* Total Cost */}
             <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
               <div className="shrink-0 rounded-lg bg-red-50 p-3 text-red-600">
                 <TrendingUp className="h-5 w-5 sm:h-6 sm:w-6" />
@@ -370,6 +248,7 @@ export default function InventoryPage() {
               </div>
             </div>
 
+            {/* Potential Revenue */}
             <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
               <div className="shrink-0 rounded-lg bg-green-50 p-3 text-green-600">
                 <DollarSign className="h-5 w-5 sm:h-6 sm:w-6" />
@@ -389,6 +268,7 @@ export default function InventoryPage() {
 
           {/* ================= FILTERS ================= */}
           <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+            {/* Search */}
             <div className="relative w-full sm:max-w-md">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
 
@@ -401,6 +281,7 @@ export default function InventoryPage() {
               />
             </div>
 
+            {/* Category */}
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
@@ -414,6 +295,7 @@ export default function InventoryPage() {
             </select>
           </div>
 
+          {/* ================= TABLE ================= */}
           {/* ================= TABLE ================= */}
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
             <div className="max-h-125 overflow-auto">
@@ -462,6 +344,7 @@ export default function InventoryPage() {
                         key={product.id}
                         className="transition-colors hover:bg-slate-50"
                       >
+                        {/* Product */}
                         <td className="px-4 py-4 sm:px-6">
                           <p className="font-medium text-slate-900">
                             {product.name}
@@ -472,20 +355,24 @@ export default function InventoryPage() {
                           </p>
                         </td>
 
+                        {/* Category */}
                         <td className="px-4 py-4 sm:px-6">
                           <span className="inline-flex rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
                             {product.category}
                           </span>
                         </td>
 
+                        {/* Cost Price */}
                         <td className="px-4 py-4 text-sm text-slate-600 sm:px-6">
                           ₦{product.costPrice.toFixed(2)}
                         </td>
 
+                        {/* Selling Price */}
                         <td className="px-4 py-4 text-sm font-medium text-slate-900 sm:px-6">
                           ₦{product.sellingPrice.toFixed(2)}
                         </td>
 
+                        {/* Stock */}
                         <td className="px-4 py-4 sm:px-6">
                           <div className="flex items-center gap-2">
                             <span className="w-8 text-sm font-medium text-slate-900">
@@ -509,6 +396,7 @@ export default function InventoryPage() {
                           </div>
                         </td>
 
+                        {/* Actions */}
                         <td className="px-4 py-4 text-right sm:px-6">
                           <div className="flex justify-end gap-1">
                             <button
@@ -544,6 +432,7 @@ export default function InventoryPage() {
       {isModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/50 p-3 sm:p-4">
           <div className="my-auto w-full max-w-md overflow-hidden rounded-xl bg-white shadow-2xl">
+            {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-100 p-4 sm:p-6">
               <h2 className="text-lg sm:text-xl font-bold text-slate-900">
                 {editingProduct ? 'Edit Product' : 'Add New Product'}
@@ -559,11 +448,13 @@ export default function InventoryPage() {
               </button>
             </div>
 
+            {/* Modal Form */}
             <form
               onSubmit={handleSaveProduct}
               className="max-h-[80vh] overflow-y-auto p-4 sm:p-6"
             >
               <div className="space-y-4">
+                {/* Product Name */}
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium text-slate-700">
                     Product Name
@@ -578,6 +469,7 @@ export default function InventoryPage() {
                   />
                 </div>
 
+                {/* SKU + Category */}
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium text-slate-700">
@@ -608,6 +500,7 @@ export default function InventoryPage() {
                   </div>
                 </div>
 
+                {/* Cost + Selling Price */}
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-1.5">
                     <label className="text-sm font-medium text-slate-700">
@@ -640,6 +533,7 @@ export default function InventoryPage() {
                   </div>
                 </div>
 
+                {/* Stock */}
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium text-slate-700">
                     Initial Stock
@@ -654,6 +548,7 @@ export default function InventoryPage() {
                   />
                 </div>
 
+                {/* Low Stock Alert */}
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium text-slate-700">
                     Low Stock Alert
@@ -669,6 +564,7 @@ export default function InventoryPage() {
                   />
                 </div>
 
+                {/* Buttons */}
                 <div className="flex flex-col-reverse gap-3 pt-3 sm:flex-row">
                   <button
                     type="button"

@@ -1,27 +1,44 @@
 'use server';
 
 import prisma from '@/lib/prisma';
+import { requireBranchAccess, requireAuth } from '@/lib/authorization';
 
-// 1. Admin KPI Dashboard Metrics
-export async function getStoreKPIs() {
+// ============================================================
+// 1. Branch KPI Dashboard Metrics
+// ============================================================
+
+export async function getStoreKPIs(branchId?: string) {
   try {
-    // Get total revenue from all orders
+    const access = await requireBranchAccess(branchId);
+
     const totalRevenue = await prisma.order.aggregate({
-      _sum: { totalAmount: true },
+      where: {
+        branchId: access.branchId,
+      },
+      _sum: {
+        totalAmount: true,
+      },
     });
 
-    // Count total products in catalog
-    const totalProducts = await prisma.product.count();
+    const totalProducts = await prisma.product.count({
+      where: {
+        branchId: access.branchId,
+      },
+    });
 
-    // Get today's total revenue specifically
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const todaysRevenue = await prisma.order.aggregate({
       where: {
-        createdAt: { gte: today },
+        branchId: access.branchId,
+        createdAt: {
+          gte: today,
+        },
       },
-      _sum: { totalAmount: true },
+      _sum: {
+        totalAmount: true,
+      },
     });
 
     return {
@@ -33,49 +50,117 @@ export async function getStoreKPIs() {
       },
     };
   } catch (error) {
-    return { success: false, error: 'Failed to fetch KPIs' };
+    console.error('getStoreKPIs error:', error);
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch KPIs',
+    };
   }
 }
 
-// 2. Order History (For the Admin to see all past receipts)
-export async function getRecentOrders() {
+// ============================================================
+// 2. Recent Orders for the Current Branch
+// ============================================================
+
+export async function getRecentOrders(branchId?: string) {
   try {
+    const access = await requireBranchAccess(branchId);
+
     const orders = await prisma.order.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 50, // Fetch the latest 50 orders
+      where: {
+        branchId: access.branchId,
+      },
+
+      orderBy: {
+        createdAt: 'desc',
+      },
+
+      take: 50,
+
       include: {
         staff: {
-          select: { firstName: true, lastName: true }, // See who made the sale
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+          },
         },
+
         items: {
           include: {
-            product: { select: { name: true } }, // See what was sold
+            product: {
+              select: {
+                id: true,
+                name: true,
+                sku: true,
+              },
+            },
           },
         },
       },
     });
-    return { success: true, data: orders };
+
+    return {
+      success: true,
+      data: orders,
+    };
   } catch (error) {
-    return { success: false, error: 'Failed to fetch orders' };
+    console.error('getRecentOrders error:', error);
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch orders',
+    };
   }
 }
 
-// 3. Sales Assistant Daily Target (For the POS Screen Header)
-export async function getDailySalesTotal(staffId: string) {
+// ============================================================
+// 3. Sales Assistant Daily Total
+// ============================================================
+
+export async function getDailySalesTotal() {
   try {
+    const user = await requireAuth();
+
+    if (
+      user.role !== 'SALES_ASSISTANT' &&
+      user.role !== 'MANAGER' &&
+      user.role !== 'ADMIN'
+    ) {
+      return {
+        success: false,
+        error: 'You are not authorized to view sales totals',
+      };
+    }
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const dailyTotal = await prisma.order.aggregate({
       where: {
-        staffId: staffId,
-        createdAt: { gte: today },
+        staffId: user.id,
+        createdAt: {
+          gte: today,
+        },
       },
-      _sum: { totalAmount: true },
+
+      _sum: {
+        totalAmount: true,
+      },
     });
 
-    return { success: true, data: dailyTotal._sum.totalAmount || 0 };
+    return {
+      success: true,
+      data: dailyTotal._sum.totalAmount || 0,
+    };
   } catch (error) {
-    return { success: false, error: 'Failed to fetch daily total' };
+    console.error('getDailySalesTotal error:', error);
+
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : 'Failed to fetch daily total',
+    };
   }
 }

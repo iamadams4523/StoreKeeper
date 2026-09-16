@@ -1,152 +1,3 @@
-// 'use client';
-
-// import { useState } from 'react';
-// import { signIn, getSession } from 'next-auth/react';
-// import { useRouter } from 'next/navigation';
-// import { createInitialAdmin } from '@/app/actions/seed';
-
-// export default function LoginPage() {
-//   const [email, setEmail] = useState('');
-//   const [password, setPassword] = useState('');
-//   const [error, setError] = useState('');
-//   const [loading, setLoading] = useState(false);
-//   const [successMsg, setSuccessMsg] = useState('');
-//   const router = useRouter();
-
-//   const handleLogin = async (e: React.FormEvent) => {
-//     e.preventDefault();
-//     setLoading(true);
-//     setError('');
-
-//     try {
-//       const result = await signIn('credentials', {
-//         email,
-//         password,
-//         redirect: false,
-//       });
-
-//       if (result?.error) {
-//         setError(result.error);
-//         setLoading(false);
-//         return; // Stop execution here on error
-//       }
-
-//       // Force a completely fresh fetch of the session, bypassing all caches
-//       const res = await fetch('/api/auth/session', {
-//         cache: 'no-store', // Tells Next.js not to cache
-//         headers: {
-//           'Cache-Control': 'no-cache, no-store, must-revalidate',
-//           Pragma: 'no-cache',
-//         },
-//       });
-
-//       const session = await res.json();
-
-//       // DEBUG: This will pop up on your screen so you can see EXACTLY what NextAuth is doing
-//       console.log('Session Data:', session);
-//       // alert(`Debug -> Role from database is: ${session?.user?.role}`);
-
-//       // Safely check the role and route
-//       if (session?.user?.role?.toUpperCase() === 'ADMIN') {
-//         router.push('/admin/dashboard');
-//       } else {
-//         router.push('/pos');
-//       }
-
-//       router.refresh();
-//     } catch (err) {
-//       setError('An unexpected error occurred during login.');
-//       setLoading(false);
-//     }
-//   };
-//   const handleSeedAdmin = async () => {
-//     const res = await createInitialAdmin();
-//     if (res.success) {
-//       setSuccessMsg(
-//         `Default Admin created! Email: ${res.email} | Password: admin123`,
-//       );
-//       setEmail(res.email || 'admin@store.com');
-//       setPassword('admin123');
-//     } else {
-//       setError(res.message || 'Admin already exists.');
-//     }
-//   };
-
-//   return (
-//     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-//       <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-8 border border-gray-100">
-//         <div className="text-center mb-8">
-//           <h1 className="text-2xl font-bold text-gray-900">Store Portal</h1>
-//           <p className="text-sm text-gray-500 mt-1">Sign in to your account</p>
-//         </div>
-
-//         {successMsg && (
-//           <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg">
-//             {successMsg}
-//           </div>
-//         )}
-
-//         {error && (
-//           <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">
-//             {error}
-//           </div>
-//         )}
-
-//         <form onSubmit={handleLogin} className="space-y-4">
-//           <div>
-//             <label className="block text-sm font-medium text-gray-700 mb-1">
-//               Email Address
-//             </label>
-//             <input
-//               type="email"
-//               required
-//               value={email}
-//               onChange={(e) => setEmail(e.target.value)}
-//               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-black"
-//               placeholder="admin@store.com"
-//             />
-//           </div>
-
-//           <div>
-//             <label className="block text-sm font-medium text-gray-700 mb-1">
-//               Password
-//             </label>
-//             <input
-//               type="password"
-//               required
-//               value={password}
-//               onChange={(e) => setPassword(e.target.value)}
-//               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-black"
-//               placeholder="••••••••"
-//             />
-//           </div>
-
-//           <button
-//             type="submit"
-//             disabled={loading}
-//             className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50"
-//           >
-//             {loading ? 'Signing in...' : 'Sign In'}
-//           </button>
-//         </form>
-
-//         <div className="mt-6 pt-6 border-t border-gray-100 text-center">
-//           <p className="text-xs text-gray-500 mb-2">
-//             Setting up for the first time?
-//           </p>
-//           <button
-//             onClick={handleSeedAdmin}
-//             type="button"
-//             className="text-xs text-blue-600 hover:underline font-medium cursor-pointer"
-//           >
-//             Click here to create default Admin account
-//           </button>
-//         </div>
-//       </div>
-//     </div>
-//   );
-// }
-
 'use client';
 
 import { useState } from 'react';
@@ -179,7 +30,10 @@ export default function LoginPage() {
 
       console.log('Login result:', result);
 
-      // Authentication failed
+      // =====================================================
+      // AUTHENTICATION FAILED
+      // =====================================================
+
       if (!result || result.error) {
         setError(
           result?.error === 'CredentialsSignin'
@@ -191,11 +45,15 @@ export default function LoginPage() {
         return;
       }
 
+      // =====================================================
+      // GET AUTHENTICATED SESSION
+      // =====================================================
+
       /*
        * Authentication succeeded.
        *
        * Fetch the newly-created session so we can determine
-       * whether the user is an ADMIN or SALES_ASSISTANT.
+       * the user's role and branch.
        */
       const response = await fetch('/api/auth/session', {
         method: 'GET',
@@ -216,54 +74,132 @@ export default function LoginPage() {
 
       const role = session?.user?.role;
       const status = session?.user?.status;
+      const branchId = session?.user?.branchId ?? null;
 
-      /*
-       * Make sure the session actually contains the role.
-       */
+      console.log('User role:', role);
+      console.log('User status:', status);
+      console.log('User branchId:', branchId);
+
+      // =====================================================
+      // MAKE SURE ROLE EXISTS
+      // =====================================================
+
       if (!role) {
         setError(
           'Login succeeded, but your account role could not be determined.',
         );
+
         setLoading(false);
         return;
       }
 
+      // =====================================================
+      // CHECK ACCOUNT STATUS
+      // =====================================================
+
       /*
-       * Prevent suspended accounts from accessing the application.
+       * Suspended accounts should not be allowed into
+       * the application.
        *
-       * This should ALSO be enforced inside the NextAuth authorize()
-       * function on the server. This check is only an additional
-       * client-side safeguard.
+       * This is also enforced inside NextAuth authorize()
+       * on the server. This is an additional client-side
+       * safeguard.
        */
       if (status === 'SUSPENDED') {
         setError(
           'Your account has been suspended. Please contact an administrator.',
         );
+
         setLoading(false);
+        return;
+      }
+
+      // =====================================================
+      // ROLE-BASED REDIRECT
+      // =====================================================
+
+      /*
+       * ADMIN
+       *
+       * Admin does NOT have a permanent branch.
+       *
+       * Admin goes to the Admin Dashboard first and can
+       * then select a branch to operate.
+       */
+      if (role === 'ADMIN') {
+        router.replace('/admin/dashboard');
+
         return;
       }
 
       /*
-       * Route users according to their database role.
+       * MANAGER
+       *
+       * Manager MUST have a branch assigned.
+       *
+       * Their branch comes from:
+       *
+       * session.user.branchId
+       *
+       * The Manager does not need to select a branch.
        */
-      if (role === 'ADMIN') {
-        router.replace('/admin/dashboard');
-      } else if (role === 'SALES_ASSISTANT') {
-        router.replace('/pos');
-      } else {
-        setError('Your account does not have a valid system role.');
-        setLoading(false);
+      if (role === 'MANAGER') {
+        if (!branchId) {
+          setError(
+            'Your manager account is not assigned to a branch. Please contact an administrator.',
+          );
+
+          setLoading(false);
+          return;
+        }
+
+        router.replace('/manager');
+
         return;
       }
 
-      router.refresh();
+      /*
+       * SALES ASSISTANT
+       *
+       * Sales Assistant MUST have a branch assigned.
+       *
+       * Their POS page will automatically use the
+       * branch from their session.
+       */
+      if (role === 'SALES_ASSISTANT') {
+        if (!branchId) {
+          setError(
+            'Your sales assistant account is not assigned to a branch. Please contact an administrator.',
+          );
+
+          setLoading(false);
+          return;
+        }
+
+        router.replace('/pos');
+
+        return;
+      }
+
+      // =====================================================
+      // INVALID ROLE
+      // =====================================================
+
+      setError('Your account does not have a valid system role.');
+
+      setLoading(false);
     } catch (error) {
       console.error('Login error:', error);
 
       setError('An unexpected error occurred during login.');
+
       setLoading(false);
     }
   };
+
+  // =========================================================
+  // CREATE INITIAL ADMIN
+  // =========================================================
 
   const handleSeedAdmin = async () => {
     setError('');
@@ -286,9 +222,14 @@ export default function LoginPage() {
       }
     } catch (error) {
       console.error('Seed admin error:', error);
+
       setError('Failed to create the default admin account.');
     }
   };
+
+  // =========================================================
+  // UI
+  // =========================================================
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">

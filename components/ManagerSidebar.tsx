@@ -1,54 +1,29 @@
 'use client';
 
 import { useState } from 'react';
-import {
-  LayoutDashboard,
-  Package,
-  Users,
-  LogOut,
-  Menu,
-  X,
-  Handshake,
-  FolderKanban,
-  Stamp,
-} from 'lucide-react';
+import { LayoutDashboard, Package, Users, LogOut, Menu, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-const AdminSidebar = () => {
+const ManagerSidebar = () => {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
 
   const navItems = [
     {
       name: 'Dashboard',
-      href: '/admin/dashboard',
+      href: '/manager/dashboard',
       icon: LayoutDashboard,
     },
     {
       name: 'Inventory',
-      href: '/admin/inventory',
+      href: '/manager/inventory',
       icon: Package,
     },
     {
       name: 'Staff Management',
-      href: '/admin/staffManagement',
+      href: '/manager/staffManagement',
       icon: Users,
-    },
-    {
-      name: 'Branch Operations',
-      href: '/admin/branchOperations',
-      icon: Handshake,
-    },
-    {
-      name: 'Branch Management',
-      href: '/admin/branchManagement',
-      icon: FolderKanban,
-    },
-    {
-      name: 'Approvals',
-      href: '/admin/approvals',
-      icon: Stamp,
     },
   ];
 
@@ -216,4 +191,4 @@ const AdminSidebar = () => {
   );
 };
 
-export default AdminSidebar;
+export default ManagerSidebar;

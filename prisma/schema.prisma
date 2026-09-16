@@ -1,71 +1,219 @@
 generator client {
-  provider = "prisma-client-js" 
+  provider = "prisma-client-js"
 }
 
 datasource db {
-  provider  = "postgresql"
+  provider = "postgresql"
 }
 
-// --- Data Models ---
+// ============================================================
+// BRANCH
+// ============================================================
+
+model Branch {
+  id String @id @default(uuid())
+
+  name    String  @unique
+  address String?
+  phone   String?
+  email   String?
+
+  status BranchStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users    User[]
+  products Product[]
+  orders   Order[]
+  pendingActions PendingAction[]
+}
+
+// ============================================================
+// USER / STAFF
+// ============================================================
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
+  id String @id @default(uuid())
+
+  email     String @unique
   firstName String
   lastName  String
   password  String
-  role      Role     @default(SALES_ASSISTANT)
-  status    Status   @default(ACTIVE)
+
+  role   Role   @default(SALES_ASSISTANT)
+  status Status @default(ACTIVE)
+
+  // Admin does not need a branch.
+  // Manager and Sales Assistant should have a branch.
+  branchId String?
+  branch   Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
-  
-  orders    Order[]
+  updatedAt DateTime @updatedAt
+
+  orders Order[]
+
+  @@index([branchId])
+  @@index([role])
+  @@index([status])
+
+  requestedActions PendingAction[] @relation("RequestedActions")
+  reviewedActions  PendingAction[] @relation("ReviewedActions")
 }
+
+// ============================================================
+// PRODUCT
+// ============================================================
 
 model Product {
-  id            String   @id @default(uuid())
-  sku           String   @unique
-  name          String
-  category      String
-  stock         Int      @default(0)
-  lowStockAlert Int      @default(5)
-  costPrice     Float
-  sellingPrice  Float
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
-  orderItems    OrderItem[]
+  id String @id @default(uuid())
+
+  // Product belongs directly to a branch.
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  sku      String
+  name     String
+  category String
+
+  stock         Int @default(0)
+  lowStockAlert Int @default(5)
+
+  costPrice    Float
+  sellingPrice Float
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orderItems OrderItem[]
+
+  // Same SKU can exist in different branches,
+  // but not twice inside the same branch.
+  @@unique([branchId, sku])
+  @@index([branchId])
+  @@index([category])
 }
+
+// ============================================================
+// ORDER / SALE
+// ============================================================
 
 model Order {
-  id            String   @id @default(uuid())
-  totalAmount   Float
-  paymentMethod String   @default("CASH")
-  staffId       String
-  createdAt     DateTime @default(now())
+  id String @id @default(uuid())
 
-  staff         User        @relation(fields: [staffId], references: [id])
-  items         OrderItem[]
+  totalAmount   Float
+  paymentMethod String @default("CASH")
+
+  // Staff member who made the sale.
+  staffId String
+  staff   User   @relation(fields: [staffId], references: [id])
+
+  // Branch where the sale happened.
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  items OrderItem[]
+
+  @@index([branchId])
+  @@index([staffId])
+  @@index([createdAt])
 }
+
+// ============================================================
+// ORDER ITEMS
+// ============================================================
 
 model OrderItem {
-  id        String @id @default(uuid())
+  id String @id @default(uuid())
+
   orderId   String
   productId String
-  quantity  Int
-  price     Float 
 
-  order     Order   @relation(fields: [orderId], references: [id])
-  product   Product @relation(fields: [productId], references: [id])
+  quantity Int
+
+  // Selling price at the time of the sale.
+  price Float
+
+  // Cost price at the time of the sale.
+  costPrice Float
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+}
+// ============================================================
+// PENDING ACTION (approval queue for MANAGER-initiated changes)
+// ============================================================
+
+model PendingAction {
+  id String @id @default(uuid())
+
+  actionType PendingActionType
+
+  // The manager who requested it
+  requestedById String
+  requestedBy   User   @relation("RequestedActions", fields: [requestedById], references: [id])
+
+  // Branch this action applies to
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  // Validated input for the action (shape depends on actionType)
+  payload Json
+
+  // For UPDATE_/DELETE_/TOGGLE_ actions: the record being targeted
+  targetId String?
+
+  status PendingActionStatus @default(PENDING)
+
+  reviewedById    String?
+  reviewedBy      User?     @relation("ReviewedActions", fields: [reviewedById], references: [id])
+  reviewedAt      DateTime?
+  rejectionReason String?
+
+  createdAt DateTime @default(now())
+
+  @@index([branchId])
+  @@index([status])
+  @@index([requestedById])
 }
 
-// --- Enums ---
+// ============================================================
+// ENUMS
+// ============================================================
 
 enum Role {
   ADMIN
+  MANAGER
   SALES_ASSISTANT
 }
 
 enum Status {
   ACTIVE
   SUSPENDED
+}
+
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PendingActionType {
+  CREATE_PRODUCT
+  UPDATE_PRODUCT
+  DELETE_PRODUCT
+  CREATE_STAFF
+  UPDATE_STAFF
+  TOGGLE_STAFF_STATUS
+}
+
+enum PendingActionStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }

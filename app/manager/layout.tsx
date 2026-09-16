@@ -1,5 +1,5 @@
 import React from 'react';
-import AdminSidebar from '@/components/AdminSidebar';
+import ManagerSidebar from '@/components/ManagerSidebar';
 
 export default function AdminLayout({
   children,
@@ -10,7 +10,7 @@ export default function AdminLayout({
     <div className="min-h-screen bg-slate-50">
       <div className="flex min-h-screen">
         {/* ================= SIDEBAR ================= */}
-        <AdminSidebar />
+        <ManagerSidebar />
 
         {/* ================= MAIN AREA ================= */}
         <div className="flex-1 min-w-0">

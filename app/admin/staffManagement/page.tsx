@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import {
   Users,
@@ -8,11 +8,11 @@ import {
   Search,
   Edit,
   Shield,
-  ShieldCheck,
   Mail,
   CheckCircle2,
   XCircle,
   X,
+  Building2,
 } from 'lucide-react';
 
 import AdminSidebar from '@/components/AdminSidebar';
@@ -24,188 +24,186 @@ import {
   toggleStaffStatus,
 } from '@/app/actions/staff';
 
-// ======================================================
-// TYPES
-// ======================================================
+import { getAllBranches } from '@/app/actions/branch';
+
+interface Branch {
+  id: string;
+  name: string;
+  status: 'ACTIVE' | 'INACTIVE';
+}
 
 interface Staff {
   id: string;
   firstName: string;
   lastName: string;
   email: string;
-  role: 'SALES_ASSISTANT';
+  role: 'MANAGER' | 'SALES_ASSISTANT';
   status: 'ACTIVE' | 'SUSPENDED';
+  branchId: string | null;
+  branch?: {
+    id: string;
+    name: string;
+  } | null;
   createdAt: Date;
 }
 
-// ======================================================
-// PAGE
-// ======================================================
-
-export default function StaffManagementPage() {
-  // ====================================================
-  // STATE
-  // ====================================================
-
+export default function AdminStaffManagement() {
   const [staff, setStaff] = useState<Staff[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [branches, setBranches] = useState<Branch[]>([]);
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<
+    'ALL' | 'MANAGER' | 'SALES_ASSISTANT'
+  >('ALL');
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-
-  const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
-
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
-  // ====================================================
-  // LOAD STAFF
-  // ====================================================
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
+
+  const [form, setForm] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    password: '',
+    role: 'SALES_ASSISTANT' as 'MANAGER' | 'SALES_ASSISTANT',
+    branchId: '',
+  });
+
+  async function loadData() {
+    const [staffResult, branchResult] = await Promise.all([
+      getAllStaff(),
+      getAllBranches(),
+    ]);
+
+    if (staffResult.success && staffResult.data) {
+      setStaff(staffResult.data as Staff[]);
+    } else {
+      alert(staffResult.error);
+    }
+
+    if (branchResult.success && branchResult.data) {
+      setBranches(
+        branchResult.data
+          .filter((branch) => branch.status === 'ACTIVE')
+          .map((branch) => ({
+            id: branch.id,
+            name: branch.name,
+            status: branch.status,
+          })),
+      );
+    } else {
+      alert(branchResult.error);
+    }
+
+    setIsLoading(false);
+  }
 
   useEffect(() => {
-    async function loadStaff() {
-      try {
-        setIsLoading(true);
-
-        const result = await getAllStaff();
-
-        if (result.success) {
-          setStaff(result.data as Staff[]);
-        } else {
-          console.error(result.error);
-          alert(result.error);
-        }
-      } catch (error) {
-        console.error('Failed to load staff:', error);
-        alert('Failed to load staff members.');
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    loadStaff();
+    loadData();
   }, []);
 
-  // ====================================================
-  // FILTER STAFF
-  // ====================================================
-
   const filteredStaff = useMemo(() => {
-    const query = searchQuery.toLowerCase().trim();
-
-    if (!query) {
-      return staff;
-    }
+    const query = searchQuery.toLowerCase();
 
     return staff.filter((person) => {
-      const fullName = `${person.firstName} ${person.lastName}`.toLowerCase();
+      const matchesSearch =
+        `${person.firstName} ${person.lastName}`
+          .toLowerCase()
+          .includes(query) ||
+        person.email.toLowerCase().includes(query) ||
+        person.branch?.name?.toLowerCase().includes(query);
 
-      return (
-        fullName.includes(query) || person.email.toLowerCase().includes(query)
-      );
+      const matchesRole = roleFilter === 'ALL' || person.role === roleFilter;
+
+      return matchesSearch && matchesRole;
     });
-  }, [staff, searchQuery]);
-
-  // ====================================================
-  // ANALYTICS
-  // ====================================================
+  }, [staff, searchQuery, roleFilter]);
 
   const activeStaffCount = staff.filter(
     (person) => person.status === 'ACTIVE',
   ).length;
 
-  const suspendedStaffCount = staff.filter(
-    (person) => person.status === 'SUSPENDED',
+  const managerCount = staff.filter(
+    (person) => person.role === 'MANAGER',
   ).length;
 
   const assistantCount = staff.filter(
     (person) => person.role === 'SALES_ASSISTANT',
   ).length;
 
-  // ====================================================
-  // OPEN ADD MODAL
-  // ====================================================
-
-  const handleOpenAdd = () => {
+  const openCreateModal = () => {
     setEditingStaff(null);
+
+    setForm({
+      firstName: '',
+      lastName: '',
+      email: '',
+      password: '',
+      role: 'SALES_ASSISTANT',
+      branchId: branches[0]?.id || '',
+    });
+
     setIsModalOpen(true);
   };
 
-  // ====================================================
-  // OPEN EDIT MODAL
-  // ====================================================
-
-  const handleOpenEdit = (person: Staff) => {
+  const openEditModal = (person: Staff) => {
     setEditingStaff(person);
+
+    setForm({
+      firstName: person.firstName,
+      lastName: person.lastName,
+      email: person.email,
+      password: '',
+      role: person.role,
+      branchId: person.branchId || '',
+    });
+
     setIsModalOpen(true);
   };
 
-  // ====================================================
-  // CLOSE MODAL
-  // ====================================================
-
-  const handleCloseModal = () => {
+  const closeModal = () => {
     if (isSaving) return;
 
     setIsModalOpen(false);
     setEditingStaff(null);
   };
 
-  // ====================================================
-  // SAVE STAFF
-  // ====================================================
-
   const handleSaveStaff = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
     if (isSaving) return;
 
-    const formData = new FormData(e.currentTarget);
-
-    const firstName = String(formData.get('firstName') || '').trim();
-
-    const lastName = String(formData.get('lastName') || '').trim();
-
-    const email = String(formData.get('email') || '')
-      .trim()
-      .toLowerCase();
-
     try {
       setIsSaving(true);
 
-      // ================================================
-      // UPDATE EXISTING STAFF
-      // ================================================
-
       if (editingStaff) {
         const result = await updateStaff(editingStaff.id, {
-          firstName,
-          lastName,
-          email,
+          firstName: form.firstName,
+          lastName: form.lastName,
+          email: form.email,
+          role: form.role,
+          branchId: form.branchId,
         });
 
         if (!result.success) {
           alert(result.error);
           return;
         }
-      }
-
-      // ================================================
-      // CREATE NEW STAFF
-      // ================================================
-      else {
-        const passwordRaw = String(formData.get('password') || '');
-
-        if (!passwordRaw) {
+      } else {
+        if (!form.password) {
           alert('Please enter a password.');
           return;
         }
 
         const result = await createStaffAccount({
-          firstName,
-          lastName,
-          email,
-          passwordRaw,
+          firstName: form.firstName,
+          lastName: form.lastName,
+          email: form.email,
+          passwordRaw: form.password,
+          role: form.role,
+          branchId: form.branchId,
         });
 
         if (!result.success) {
@@ -214,74 +212,44 @@ export default function StaffManagementPage() {
         }
       }
 
-      // ================================================
-      // REFRESH STAFF FROM DATABASE
-      // ================================================
-
-      const refreshResult = await getAllStaff();
-
-      if (!refreshResult.success) {
-        alert(refreshResult.error);
-        return;
-      }
-
-      setStaff(refreshResult.data as Staff[]);
+      await loadData();
 
       setIsModalOpen(false);
       setEditingStaff(null);
     } catch (error) {
-      console.error('Error saving staff:', error);
-
-      alert('Failed to save staff member. Please try again.');
+      console.error(error);
+      alert('Failed to save staff member.');
     } finally {
       setIsSaving(false);
     }
   };
 
-  // ====================================================
-  // TOGGLE STAFF STATUS
-  // ====================================================
-
   const handleToggleStatus = async (person: Staff) => {
-    try {
-      const result = await toggleStaffStatus(person.id, person.status);
+    const result = await toggleStaffStatus(person.id, person.status);
 
-      if (!result.success) {
-        alert(result.error);
-        return;
-      }
-
-      // Update the local state with database result
-      setStaff((currentStaff) =>
-        currentStaff.map((staffMember) =>
-          staffMember.id === person.id
-            ? {
-                ...staffMember,
-                status: result.data?.status ?? staffMember.status,
-              }
-            : staffMember,
-        ),
-      );
-    } catch (error) {
-      console.error('Error updating staff status:', error);
-
-      alert('Failed to update staff status. Please try again.');
+    if (!result.success) {
+      alert(result.error);
+      return;
     }
-  };
 
-  // ====================================================
-  // LOADING SCREEN
-  // ====================================================
+    setStaff((current) =>
+      current.map((member) =>
+        member.id === person.id
+          ? {
+              ...member,
+              status: result.data?.status ?? member.status,
+            }
+          : member,
+      ),
+    );
+  };
 
   if (isLoading) {
     return (
       <div className="flex min-h-screen bg-slate-50">
-        <AdminSidebar />
-
         <main className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mx-auto mb-4" />
-
             <p className="text-sm text-slate-500">Loading staff members...</p>
           </div>
         </main>
@@ -289,47 +257,33 @@ export default function StaffManagementPage() {
     );
   }
 
-  // ====================================================
-  // PAGE
-  // ====================================================
-
   return (
     <div className="flex min-h-screen bg-slate-50">
-      <AdminSidebar />
-
-      <main className="flex-1 overflow-y-auto p-8">
+      <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
         <div className="max-w-7xl mx-auto">
-          {/* ============================================
-              HEADER
-          ============================================ */}
-
+          {/* HEADER */}
           <header className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8 border-b border-slate-200 pb-6">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
                 Staff Management
               </h1>
 
-              <p className="text-slate-500 mt-1">
-                Manage employee access, roles, and account information.
+              <p className="text-sm text-slate-500 mt-1">
+                Manage managers and sales assistants across all branches.
               </p>
             </div>
 
             <button
-              onClick={handleOpenAdd}
-              className="inline-flex items-center justify-center rounded-lg text-sm font-medium transition-colors bg-indigo-600 text-white hover:bg-indigo-700 h-10 px-4 py-2 gap-2 shadow-sm"
+              onClick={openCreateModal}
+              className="inline-flex items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 h-10 px-4 py-2 gap-2 text-sm font-medium shadow-sm"
             >
               <UserPlus size={18} />
               Add New Staff
             </button>
           </header>
 
-          {/* ============================================
-              ANALYTICS CARDS
-          ============================================ */}
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            {/* Total Employees */}
-
+          {/* KPI CARDS */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 lg:gap-6 mb-8">
             <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
               <div className="bg-blue-50 p-3 rounded-lg text-blue-600">
                 <Users size={24} />
@@ -340,13 +294,9 @@ export default function StaffManagementPage() {
                   Total Employees
                 </p>
 
-                <h3 className="text-2xl font-bold text-slate-900">
-                  {staff.length}
-                </h3>
+                <h3 className="text-2xl font-bold">{staff.length}</h3>
               </div>
             </div>
-
-            {/* Active Accounts */}
 
             <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
               <div className="bg-emerald-50 p-3 rounded-lg text-emerald-600">
@@ -358,13 +308,9 @@ export default function StaffManagementPage() {
                   Active Accounts
                 </p>
 
-                <h3 className="text-2xl font-bold text-slate-900">
-                  {activeStaffCount}
-                </h3>
+                <h3 className="text-2xl font-bold">{activeStaffCount}</h3>
               </div>
             </div>
-
-            {/* Sales Assistants */}
 
             <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
               <div className="bg-purple-50 p-3 rounded-lg text-purple-600">
@@ -372,386 +318,345 @@ export default function StaffManagementPage() {
               </div>
 
               <div>
+                <p className="text-sm font-medium text-slate-500">Managers</p>
+
+                <h3 className="text-2xl font-bold">{managerCount}</h3>
+              </div>
+            </div>
+
+            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+              <div className="bg-orange-50 p-3 rounded-lg text-orange-600">
+                <Users size={24} />
+              </div>
+
+              <div>
                 <p className="text-sm font-medium text-slate-500">
                   Sales Assistants
                 </p>
 
-                <h3 className="text-2xl font-bold text-slate-900">
-                  {assistantCount}
-                </h3>
+                <h3 className="text-2xl font-bold">{assistantCount}</h3>
               </div>
             </div>
           </div>
 
-          {/* ============================================
-              SEARCH
-          ============================================ */}
-
-          <div className="bg-white p-4 rounded-t-xl border border-slate-200 border-b-0 flex items-center">
-            <div className="relative w-full max-w-md">
+          {/* FILTERS */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6 flex flex-col md:flex-row gap-3">
+            <div className="relative flex-1">
               <Search
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
                 size={18}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
               />
 
               <input
-                type="text"
-                placeholder="Search staff by name or email..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all bg-slate-50"
+                placeholder="Search staff or branch..."
+                className="w-full h-10 rounded-lg border border-slate-200 pl-10 pr-4 text-sm outline-none focus:border-indigo-500"
               />
             </div>
+
+            <select
+              value={roleFilter}
+              onChange={(e) =>
+                setRoleFilter(
+                  e.target.value as 'ALL' | 'MANAGER' | 'SALES_ASSISTANT',
+                )
+              }
+              className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-500"
+            >
+              <option value="ALL">All Roles</option>
+              <option value="MANAGER">Managers</option>
+              <option value="SALES_ASSISTANT">Sales Assistants</option>
+            </select>
           </div>
 
-          {/* ============================================
-              TABLE
-          ============================================ */}
-
-          <div className="bg-white border border-slate-200 rounded-b-xl shadow-sm overflow-hidden">
+          {/* TABLE */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider font-semibold text-xs">
+              <table className="w-full min-w-250">
+                <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
-                    <th className="px-6 py-4">Employee</th>
+                    <th className="text-left px-6 py-4 text-xs font-bold uppercase text-slate-500">
+                      Employee
+                    </th>
 
-                    <th className="px-6 py-4">Role</th>
+                    <th className="text-left px-6 py-4 text-xs font-bold uppercase text-slate-500">
+                      Role
+                    </th>
 
-                    <th className="px-6 py-4">Email</th>
+                    <th className="text-left px-6 py-4 text-xs font-bold uppercase text-slate-500">
+                      Branch
+                    </th>
 
-                    <th className="px-6 py-4">Status</th>
+                    <th className="text-left px-6 py-4 text-xs font-bold uppercase text-slate-500">
+                      Email
+                    </th>
 
-                    <th className="px-6 py-4">Joined</th>
+                    <th className="text-left px-6 py-4 text-xs font-bold uppercase text-slate-500">
+                      Status
+                    </th>
 
-                    <th className="px-6 py-4 text-right">Actions</th>
+                    <th className="text-right px-6 py-4 text-xs font-bold uppercase text-slate-500">
+                      Actions
+                    </th>
                   </tr>
                 </thead>
 
                 <tbody className="divide-y divide-slate-100">
-                  {filteredStaff.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        className="px-6 py-12 text-center text-slate-500"
-                      >
-                        <Users
-                          size={32}
-                          className="mx-auto mb-3 text-slate-300"
-                        />
+                  {filteredStaff.map((person) => (
+                    <tr
+                      key={person.id}
+                      className="hover:bg-slate-50 transition-colors"
+                    >
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm bg-indigo-100 text-indigo-700">
+                            {person.firstName.charAt(0)}
+                            {person.lastName.charAt(0)}
+                          </div>
 
-                        <p className="font-medium">No staff members found.</p>
-
-                        <p className="text-xs mt-1">
-                          {searchQuery
-                            ? 'Try a different search.'
-                            : 'Add your first staff member.'}
-                        </p>
+                          <p className="font-bold text-slate-900">
+                            {person.firstName} {person.lastName}
+                          </p>
+                        </div>
                       </td>
-                    </tr>
-                  ) : (
-                    filteredStaff.map((person) => (
-                      <tr
-                        key={person.id}
-                        className="hover:bg-slate-50/80 transition-colors group"
-                      >
-                        {/* Employee */}
 
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 bg-indigo-100 text-indigo-700">
-                              {person.firstName.charAt(0).toUpperCase()}
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-1.5">
+                          <Shield size={16} className="text-slate-400" />
 
-                              {person.lastName.charAt(0).toUpperCase()}
-                            </div>
+                          <span className="font-medium text-slate-600">
+                            {person.role === 'MANAGER'
+                              ? 'Manager'
+                              : 'Sales Assistant'}
+                          </span>
+                        </div>
+                      </td>
 
-                            <div>
-                              <p className="font-bold text-slate-900">
-                                {person.firstName} {person.lastName}
-                              </p>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <Building2 size={15} className="text-slate-400" />
 
-                              {/* <p className="text-xs text-slate-500 font-mono mt-0.5">
-                                {person.id}
-                              </p> */}
-                            </div>
-                          </div>
-                        </td>
+                          {person.branch?.name || 'Unassigned'}
+                        </div>
+                      </td>
 
-                        {/* Role */}
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <Mail size={14} className="text-slate-400" />
 
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-1.5">
-                            <Shield size={16} className="text-slate-400" />
+                          <span className="text-xs font-medium">
+                            {person.email}
+                          </span>
+                        </div>
+                      </td>
 
-                            <span className="font-medium text-slate-600">
-                              Sales Assistant
-                            </span>
-                          </div>
-                        </td>
+                      <td className="px-6 py-4">
+                        {person.status === 'ACTIVE' ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">
+                            <CheckCircle2 size={13} />
+                            Active
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700">
+                            <XCircle size={13} />
+                            Suspended
+                          </span>
+                        )}
+                      </td>
 
-                        {/* Email */}
+                      <td className="px-6 py-4">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => openEditModal(person)}
+                            className="p-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100"
+                          >
+                            <Edit size={16} />
+                          </button>
 
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2 text-slate-600">
-                            <Mail size={14} className="text-slate-400" />
-
-                            <span className="text-xs font-medium">
-                              {person.email}
-                            </span>
-                          </div>
-                        </td>
-
-                        {/* Status */}
-
-                        <td className="px-6 py-4">
-                          <span
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                          <button
+                            onClick={() => handleToggleStatus(person)}
+                            className={`px-3 py-2 rounded-lg text-xs font-bold ${
                               person.status === 'ACTIVE'
-                                ? 'bg-emerald-100 text-emerald-700'
-                                : 'bg-rose-100 text-rose-700'
+                                ? 'bg-rose-50 text-rose-600 hover:bg-rose-100'
+                                : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'
                             }`}
                           >
-                            <div
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                person.status === 'ACTIVE'
-                                  ? 'bg-emerald-500'
-                                  : 'bg-rose-500'
-                              }`}
-                            />
-
                             {person.status === 'ACTIVE'
-                              ? 'Active'
-                              : 'Suspended'}
-                          </span>
-                        </td>
-
-                        {/* Joined */}
-
-                        <td className="px-6 py-4 text-slate-600 text-sm">
-                          {new Date(person.createdAt).toLocaleDateString()}
-                        </td>
-
-                        {/* Actions */}
-
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {/* Edit */}
-
-                            <button
-                              onClick={() => handleOpenEdit(person)}
-                              className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
-                              title="Edit Details"
-                            >
-                              <Edit size={16} />
-                            </button>
-
-                            {/* Toggle Status */}
-
-                            <button
-                              onClick={() => handleToggleStatus(person)}
-                              className={`p-2 rounded-md transition-colors ${
-                                person.status === 'ACTIVE'
-                                  ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
-                                  : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'
-                              }`}
-                              title={
-                                person.status === 'ACTIVE'
-                                  ? 'Suspend Account'
-                                  : 'Activate Account'
-                              }
-                            >
-                              {person.status === 'ACTIVE' ? (
-                                <XCircle size={16} />
-                              ) : (
-                                <CheckCircle2 size={16} />
-                              )}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                              ? 'Suspend'
+                              : 'Activate'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
+
+            {filteredStaff.length === 0 && (
+              <div className="py-16 text-center">
+                <Users size={36} className="mx-auto text-slate-300 mb-3" />
+
+                <p className="font-medium text-slate-600">
+                  No staff members found.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </main>
 
-      {/* =================================================
-          ADD / EDIT MODAL
-      ================================================= */}
-
+      {/* MODAL */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-            {/* Modal Header */}
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl overflow-hidden max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200">
+              <div>
+                <h2 className="text-lg font-bold">
+                  {editingStaff ? 'Edit Staff Member' : 'Add New Staff'}
+                </h2>
 
-            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-                <UserPlus size={20} className="text-indigo-600" />
-
-                {editingStaff ? 'Edit Staff Member' : 'Onboard New Staff'}
-              </h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  Assign the staff member to a branch.
+                </p>
+              </div>
 
               <button
-                type="button"
-                onClick={handleCloseModal}
-                disabled={isSaving}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-md hover:bg-slate-200 transition-colors disabled:opacity-50"
+                onClick={closeModal}
+                className="p-2 rounded-lg hover:bg-slate-100"
               >
-                <X size={20} />
+                <X size={19} />
               </button>
             </div>
 
-            {/* Form */}
-
-            <form onSubmit={handleSaveStaff} className="p-6 space-y-5">
-              {/* First / Last Name */}
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-700">
-                    First Name
-                  </label>
-
-                  <input
-                    required
-                    name="firstName"
-                    defaultValue={editingStaff?.firstName || ''}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    placeholder="e.g. John"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-700">
-                    Last Name
-                  </label>
-
-                  <input
-                    required
-                    name="lastName"
-                    defaultValue={editingStaff?.lastName || ''}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    placeholder="e.g. Doe"
-                  />
-                </div>
-              </div>
-
-              {/* Email */}
-
-              <div className="space-y-1.5">
-                <label className="text-sm font-semibold text-slate-700">
-                  Email Address
-                </label>
-
-                <div className="relative">
-                  <Mail
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                    size={16}
-                  />
-
-                  <input
-                    required
-                    type="email"
-                    name="email"
-                    defaultValue={editingStaff?.email || ''}
-                    className="w-full pl-10 pr-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    placeholder="staff@store.com"
-                  />
-                </div>
-              </div>
-
-              {/* Password - Only for new staff */}
-
-              {!editingStaff && (
-                <div className="space-y-1.5">
-                  <label className="text-sm font-semibold text-slate-700">
-                    Password
-                  </label>
-
-                  <input
-                    required
-                    type="password"
-                    name="password"
-                    minLength={6}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    placeholder="Minimum 6 characters"
-                  />
-
-                  <p className="text-xs text-slate-400">
-                    This password will be used by the staff member to log in.
-                  </p>
-                </div>
-              )}
-
-              {/* Role */}
-
-              <div className="space-y-1.5">
-                <label className="text-sm font-semibold text-slate-700">
-                  System Role
-                </label>
-
-                <div className="flex items-center gap-2">
-                  <Shield size={16} className="text-slate-400" />
-
-                  <input
-                    type="text"
-                    value="Sales Assistant"
-                    disabled
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm bg-slate-100 text-slate-500 cursor-not-allowed"
-                  />
-                </div>
-              </div>
-
-              {/* Status */}
-
-              <div className="space-y-1.5">
-                <label className="text-sm font-semibold text-slate-700">
-                  Account Status
-                </label>
-
+            <form onSubmit={handleSaveStaff} className="p-6 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <input
-                  type="text"
-                  value={
-                    editingStaff?.status === 'SUSPENDED'
-                      ? 'Suspended'
-                      : 'Active'
+                  required
+                  placeholder="First name"
+                  value={form.firstName}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      firstName: e.target.value,
+                    })
                   }
-                  disabled
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm bg-slate-100 text-slate-500 cursor-not-allowed"
+                  className="h-11 border border-slate-200 rounded-lg px-3 text-sm outline-none focus:border-indigo-500"
                 />
 
-                {editingStaff && (
-                  <p className="text-xs text-slate-400">
-                    Use the suspend/activate button in the staff table to change
-                    account status.
-                  </p>
-                )}
+                <input
+                  required
+                  placeholder="Last name"
+                  value={form.lastName}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      lastName: e.target.value,
+                    })
+                  }
+                  className="h-11 border border-slate-200 rounded-lg px-3 text-sm outline-none focus:border-indigo-500"
+                />
               </div>
 
-              {/* Buttons */}
+              <input
+                required
+                type="email"
+                placeholder="Email address"
+                value={form.email}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    email: e.target.value,
+                  })
+                }
+                className="w-full h-11 border border-slate-200 rounded-lg px-3 text-sm outline-none focus:border-indigo-500"
+              />
 
-              <div className="pt-4 flex items-center justify-end gap-3">
+              {!editingStaff && (
+                <input
+                  required
+                  type="password"
+                  minLength={6}
+                  placeholder="Password"
+                  value={form.password}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      password: e.target.value,
+                    })
+                  }
+                  className="w-full h-11 border border-slate-200 rounded-lg px-3 text-sm outline-none focus:border-indigo-500"
+                />
+              )}
+
+              {/* ROLE */}
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
+                  Role
+                </label>
+
+                <select
+                  value={form.role}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      role: e.target.value as 'MANAGER' | 'SALES_ASSISTANT',
+                    })
+                  }
+                  className="w-full h-11 border border-slate-200 rounded-lg px-3 text-sm outline-none focus:border-indigo-500"
+                >
+                  <option value="MANAGER">Manager</option>
+
+                  <option value="SALES_ASSISTANT">Sales Assistant</option>
+                </select>
+              </div>
+
+              {/* BRANCH */}
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
+                  Branch
+                </label>
+
+                <select
+                  required
+                  value={form.branchId}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      branchId: e.target.value,
+                    })
+                  }
+                  className="w-full h-11 border border-slate-200 rounded-lg px-3 text-sm outline-none focus:border-indigo-500"
+                >
+                  <option value="">Select branch</option>
+
+                  {branches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
                 <button
                   type="button"
-                  onClick={handleCloseModal}
-                  disabled={isSaving}
-                  className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50"
+                  onClick={closeModal}
+                  className="px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-medium"
                 >
                   Cancel
                 </button>
 
                 <button
-                  type="submit"
                   disabled={isSaving}
-                  className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-5 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
                 >
                   {isSaving
                     ? 'Saving...'
                     : editingStaff
-                      ? 'Save Updates'
-                      : 'Create Account'}
+                      ? 'Save Changes'
+                      : 'Create Staff'}
                 </button>
               </div>
             </form>

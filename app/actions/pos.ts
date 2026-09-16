@@ -1,6 +1,7 @@
 'use server';
 
 import prisma from '@/lib/prisma';
+import { requireBranchAccess } from '@/lib/authorization';
 
 type PaymentMethod = 'CASH' | 'CARD' | 'TRANSFER';
 
@@ -10,15 +11,29 @@ interface SaleItem {
 }
 
 interface ProcessSaleData {
-  staffId: string;
+  // Kept for compatibility with your current POS UI.
+  // The server will NOT trust this value.
+  staffId?: string;
+
+  // Admin needs to specify which branch they are operating.
+  // Manager/Sales Assistant do not need to provide this.
+  branchId?: string;
+
   paymentMethod: PaymentMethod;
   items: SaleItem[];
 }
 
-export async function getPosCatalog() {
+// ============================================================
+// GET POS CATALOG
+// ============================================================
+
+export async function getPosCatalog(branchId?: string) {
   try {
+    const access = await requireBranchAccess(branchId);
+
     const catalog = await prisma.product.findMany({
       where: {
+        branchId: access.branchId,
         stock: {
           gt: 0,
         },
@@ -30,6 +45,7 @@ export async function getPosCatalog() {
         category: true,
         stock: true,
         sellingPrice: true,
+        costPrice: true,
       },
       orderBy: {
         name: 'asc',
@@ -45,19 +61,30 @@ export async function getPosCatalog() {
 
     return {
       success: false,
-      error: 'Failed to load POS catalog',
+      error:
+        error instanceof Error ? error.message : 'Failed to load POS catalog',
     };
   }
 }
 
+// ============================================================
+// PROCESS SALE
+// ============================================================
+
 export async function processSale(data: ProcessSaleData) {
   try {
-    if (!data.staffId) {
-      return {
-        success: false,
-        error: 'Staff account is required',
-      };
-    }
+    // ----------------------------------------------------------
+    // AUTHENTICATION + BRANCH AUTHORIZATION
+    // ----------------------------------------------------------
+
+    const access = await requireBranchAccess(data.branchId);
+
+    const user = access.user;
+    const branchId = access.branchId;
+
+    // ----------------------------------------------------------
+    // VALIDATE CART
+    // ----------------------------------------------------------
 
     if (!data.items || data.items.length === 0) {
       return {
@@ -66,7 +93,10 @@ export async function processSale(data: ProcessSaleData) {
       };
     }
 
-    // Validate payment method
+    // ----------------------------------------------------------
+    // VALIDATE PAYMENT METHOD
+    // ----------------------------------------------------------
+
     const validPaymentMethods: PaymentMethod[] = ['CASH', 'CARD', 'TRANSFER'];
 
     if (!validPaymentMethods.includes(data.paymentMethod)) {
@@ -76,60 +106,95 @@ export async function processSale(data: ProcessSaleData) {
       };
     }
 
-    // Validate staff
-    const staff = await prisma.user.findUnique({
-      where: {
-        id: data.staffId,
-      },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        status: true,
-      },
-    });
+    // ----------------------------------------------------------
+    // VALIDATE USER
+    // ----------------------------------------------------------
+    //
+    // The authenticated user is the person making the sale.
+    //
+    // We deliberately DO NOT trust data.staffId from the browser.
+    //
+    // This prevents someone from making a sale appear as though
+    // another staff member made it.
+    // ----------------------------------------------------------
 
-    if (!staff) {
-      return {
-        success: false,
-        error: 'Staff account not found',
-      };
-    }
-
-    if (staff.status !== 'ACTIVE') {
-      return {
-        success: false,
-        error: 'This staff account is suspended',
-      };
-    }
-
-    // Only sales assistants and admins can process sales
-    if (staff.role !== 'SALES_ASSISTANT' && staff.role !== 'ADMIN') {
+    if (
+      user.role !== 'ADMIN' &&
+      user.role !== 'MANAGER' &&
+      user.role !== 'SALES_ASSISTANT'
+    ) {
       return {
         success: false,
         error: 'You are not authorized to process sales',
       };
     }
 
+    // ----------------------------------------------------------
+    // AGGREGATE DUPLICATE PRODUCTS
+    // ----------------------------------------------------------
+    //
+    // If the same product somehow appears twice in the cart,
+    // combine the quantities first.
+    //
+    // Example:
+    //
+    // Product A x 2
+    // Product A x 3
+    //
+    // becomes:
+    //
+    // Product A x 5
+    // ----------------------------------------------------------
+
+    const itemMap = new Map<string, number>();
+
+    for (const item of data.items) {
+      if (!item.productId) {
+        return {
+          success: false,
+          error: 'Invalid product',
+        };
+      }
+
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+        return {
+          success: false,
+          error: 'Product quantity must be greater than zero',
+        };
+      }
+
+      const currentQuantity = itemMap.get(item.productId) ?? 0;
+
+      itemMap.set(item.productId, currentQuantity + item.quantity);
+    }
+
+    // Convert map back to array.
+    const validatedItems = Array.from(itemMap.entries()).map(
+      ([productId, quantity]) => ({
+        productId,
+        quantity,
+      }),
+    );
+
+    // ==========================================================
+    // DATABASE TRANSACTION
+    // ==========================================================
+
     const result = await prisma.$transaction(async (tx) => {
       let totalAmount = 0;
 
-      const orderItems = [];
+      const orderItems: {
+        productId: string;
+        quantity: number;
+        price: number;
+        costPrice: number;
+      }[] = [];
 
-      // ============================================
+      // --------------------------------------------------------
       // VALIDATE PRODUCTS AND STOCK
-      // ============================================
+      // --------------------------------------------------------
 
-      for (const item of data.items) {
-        if (!item.productId) {
-          throw new Error('Invalid product');
-        }
-
-        if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
-          throw new Error('Product quantity must be greater than zero');
-        }
-
+      for (const item of validatedItems) {
         const product = await tx.product.findUnique({
           where: {
             id: item.productId,
@@ -140,15 +205,36 @@ export async function processSale(data: ProcessSaleData) {
           throw new Error(`Product "${item.productId}" was not found`);
         }
 
+        // ------------------------------------------------------
+        // IMPORTANT:
+        // Make sure this product belongs to the branch being
+        // operated.
+        // ------------------------------------------------------
+
+        if (product.branchId !== branchId) {
+          throw new Error(`You cannot sell a product from another branch.`);
+        }
+
+        // ------------------------------------------------------
+        // CHECK STOCK
+        // ------------------------------------------------------
+
         if (product.stock < item.quantity) {
           throw new Error(
             `Not enough stock for ${product.name}. Available: ${product.stock}`,
           );
         }
 
-        // IMPORTANT:
-        // Use sellingPrice from DATABASE.
-        // Never trust a price sent from the browser.
+        // ------------------------------------------------------
+        // USE DATABASE PRICES
+        // ------------------------------------------------------
+        //
+        // Never trust prices coming from the browser.
+        //
+        // sellingPrice = price customer pays
+        // costPrice = what the business paid
+        // ------------------------------------------------------
+
         const itemTotal = product.sellingPrice * item.quantity;
 
         totalAmount += itemTotal;
@@ -157,18 +243,24 @@ export async function processSale(data: ProcessSaleData) {
           productId: product.id,
           quantity: item.quantity,
           price: product.sellingPrice,
+          costPrice: product.costPrice,
         });
       }
 
-      // ============================================
+      // --------------------------------------------------------
       // CREATE ORDER
-      // ============================================
+      // --------------------------------------------------------
 
       const order = await tx.order.create({
         data: {
           totalAmount,
           paymentMethod: data.paymentMethod,
-          staffId: data.staffId,
+
+          // Authenticated user, NOT data.staffId.
+          staffId: user.id,
+
+          // Branch authorized above.
+          branchId,
 
           items: {
             create: orderItems,
@@ -195,21 +287,28 @@ export async function processSale(data: ProcessSaleData) {
               lastName: true,
             },
           },
+
+          branch: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
         },
       });
 
-      // ============================================
+      // --------------------------------------------------------
       // REDUCE STOCK
-      // ============================================
+      // --------------------------------------------------------
 
-      for (const item of data.items) {
+      for (const item of validatedItems) {
         const updatedProduct = await tx.product.updateMany({
           where: {
             id: item.productId,
 
-            // This protects against stock becoming
-            // negative if another sale happens
-            // simultaneously.
+            // Extra protection against negative stock.
+            branchId,
+
             stock: {
               gte: item.quantity,
             },
@@ -231,6 +330,10 @@ export async function processSale(data: ProcessSaleData) {
 
       return order;
     });
+
+    // ==========================================================
+    // SUCCESS
+    // ==========================================================
 
     return {
       success: true,
