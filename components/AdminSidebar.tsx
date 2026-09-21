@@ -14,10 +14,12 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { signOut } from 'next-auth/react';
 
 const AdminSidebar = () => {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const navItems = [
     {
@@ -58,6 +60,22 @@ const AdminSidebar = () => {
 
   const closeSidebar = () => {
     setIsOpen(false);
+  };
+
+  const handleLogout = async () => {
+    if (isLoggingOut) return;
+
+    try {
+      setIsLoggingOut(true);
+
+      // redirect: true (the default) sends the browser to the
+      // callback URL itself once the session is cleared, so we
+      // don't need a manual router.push after this resolves.
+      await signOut({ callbackUrl: '/Login' });
+    } catch (error) {
+      console.error('Logout error:', error);
+      setIsLoggingOut(false);
+    }
   };
 
   return (
@@ -206,10 +224,12 @@ const AdminSidebar = () => {
         {/* Logout */}
         <button
           type="button"
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-rose-600 hover:bg-rose-50 transition-colors font-medium"
+          onClick={handleLogout}
+          disabled={isLoggingOut}
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-rose-600 hover:bg-rose-50 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <LogOut size={18} />
-          <span>Logout</span>
+          <span>{isLoggingOut ? 'Signing out...' : 'Logout'}</span>
         </button>
       </aside>
     </>
