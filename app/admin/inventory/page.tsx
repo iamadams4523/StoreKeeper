@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { Suspense, useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Search,
@@ -44,7 +44,12 @@ interface Branch {
   status: 'ACTIVE' | 'INACTIVE';
 }
 
-export default function InventoryPage() {
+// ============================================================
+// Inner component — holds ALL the existing logic and JSX.
+// This is the part that calls useSearchParams().
+// ============================================================
+
+function InventoryPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -60,10 +65,6 @@ export default function InventoryPage() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-
-  // =========================================================
-  // LOAD BRANCH LIST (so we can offer a picker if none is set)
-  // =========================================================
 
   useEffect(() => {
     async function loadBranches() {
@@ -83,17 +84,9 @@ export default function InventoryPage() {
     loadBranches();
   }, []);
 
-  // =========================================================
-  // SELECT A BRANCH (updates the URL, doesn't lose the page)
-  // =========================================================
-
   const handleSelectBranch = (id: string) => {
     router.push(`/admin/inventory?branchId=${encodeURIComponent(id)}`);
   };
-
-  // =========================================================
-  // FETCH INVENTORY — only runs once a branchId is present
-  // =========================================================
 
   useEffect(() => {
     if (!branchId) {
@@ -233,10 +226,6 @@ export default function InventoryPage() {
       alert('Failed to delete product.');
     }
   };
-
-  // =========================================================
-  // NO BRANCH SELECTED — show a picker instead of erroring
-  // =========================================================
 
   if (!branchId) {
     return (
@@ -691,5 +680,24 @@ export default function InventoryPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// ============================================================
+// Default export — wraps the search-params-dependent content
+// in Suspense, as Next.js App Router requires.
+// ============================================================
+
+export default function InventoryPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-slate-50">
+          <div className="h-10 w-10 sm:h-12 sm:w-12 animate-spin rounded-full border-4 border-slate-200 border-b-indigo-600" />
+        </div>
+      }
+    >
+      <InventoryPageContent />
+    </Suspense>
   );
 }

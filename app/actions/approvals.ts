@@ -3,7 +3,9 @@
 'use server';
 
 import prisma from '@/lib/prisma';
-import { requireAdmin } from '@/lib/authorization';
+// actions/approvals.ts — top of file
+
+import { requireAdmin, requireAuth } from '@/lib/authorization';
 
 // ============================================================
 // Payload shapes — must match what each *-actions.ts file

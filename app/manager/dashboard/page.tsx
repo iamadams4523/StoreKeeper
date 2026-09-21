@@ -1,6 +1,9 @@
+// app/manager/dashboard/page.tsx
+
 'use client';
+
+import { Suspense, useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
-import React, { useState, useEffect, useMemo } from 'react';
 import {
   Package,
   AlertTriangle,
@@ -13,7 +16,6 @@ import {
   Search,
 } from 'lucide-react';
 
-// Import our new Server Actions
 import { getAllProducts } from '@/app/actions/inventory';
 import { getStoreKPIs, getRecentOrders } from '@/app/actions/analytics';
 
@@ -36,7 +38,12 @@ interface Sale {
   date: Date;
 }
 
-export default function ManagerDashboard() {
+// ============================================================
+// Inner component — holds ALL the existing logic and JSX.
+// This is the part that calls useSearchParams().
+// ============================================================
+
+function ManagerDashboardContent() {
   // --- Live State ---
   const [products, setProducts] = useState<Product[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
@@ -50,11 +57,12 @@ export default function ManagerDashboard() {
 
   const branchId = searchParams.get('branchId') || undefined;
 
-  // --- Fetch Live Data on Mount ---
+  // --- Fetch Live Data on Mount / branchId change ---
   useEffect(() => {
     async function loadDashboardData() {
       try {
-        // Fetch everything in parallel for speed
+        setIsLoading(true);
+
         const [productsRes, kpiRes, ordersRes] = await Promise.all([
           getAllProducts(branchId),
           getStoreKPIs(branchId),
@@ -62,7 +70,6 @@ export default function ManagerDashboard() {
         ]);
 
         if (productsRes.success && productsRes.data) {
-          // Map DB fields to UI fields
           const mappedProducts = productsRes.data.map((p: any) => ({
             id: p.id,
             sku: p.sku,
@@ -82,12 +89,11 @@ export default function ManagerDashboard() {
         }
 
         if (ordersRes.success && ordersRes.data) {
-          // Flatten multi-item orders into single UI rows
           const flattenedSales: Sale[] = [];
           ordersRes.data.forEach((order: any) => {
             order.items.forEach((item: any) => {
               flattenedSales.push({
-                id: `${order.id}-${item.productId}`, // Unique key
+                id: `${order.id}-${item.productId}`,
                 productName: item.product.name,
                 assistantName: `${order.staff.firstName} ${order.staff.lastName}`,
                 quantity: item.quantity,
@@ -447,7 +453,6 @@ export default function ManagerDashboard() {
       {showTransactionModal && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:justify-end z-50 sm:p-0">
           <div className="bg-slate-50 shadow-2xl sm:max-w-md w-full h-[90vh] sm:h-screen overflow-hidden flex flex-col rounded-t-2xl sm:rounded-none animate-in slide-in-from-bottom-10 sm:slide-in-from-right-10 duration-200 mt-auto sm:mt-0">
-            {/* Modal Drag Handle for Mobile */}
             <div className="w-full flex justify-center py-2 bg-white sm:hidden border-b border-slate-100">
               <div className="w-12 h-1.5 bg-slate-200 rounded-full"></div>
             </div>
@@ -544,5 +549,27 @@ export default function ManagerDashboard() {
         </div>
       )}
     </div>
+  );
+}
+
+// ============================================================
+// Default export — wraps the search-params-dependent content
+// in Suspense, as Next.js App Router requires.
+// ============================================================
+
+export default function ManagerDashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-screen items-center justify-center bg-slate-50">
+          <div className="flex flex-col items-center gap-4">
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-emerald-500"></div>
+            <p className="text-slate-500 font-medium">Syncing database...</p>
+          </div>
+        </div>
+      }
+    >
+      <ManagerDashboardContent />
+    </Suspense>
   );
 }

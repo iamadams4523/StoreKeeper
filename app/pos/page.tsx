@@ -1,7 +1,9 @@
+// app/pos/page.tsx
+
 'use client';
 
+import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import React, { useEffect, useMemo, useState } from 'react';
 import { getSession } from 'next-auth/react';
 import {
   Search,
@@ -33,21 +35,18 @@ interface CartItem {
 
 type PaymentMethod = 'CASH' | 'CARD' | 'TRANSFER';
 
-export default function SalesAssistantPage() {
+// ============================================================
+// Inner component — holds ALL the existing logic and JSX.
+// This is the part that calls useSearchParams().
+// ============================================================
+
+function SalesAssistantPageContent() {
   // =========================================================
   // BRANCH SELECTION
   // =========================================================
 
   const searchParams = useSearchParams();
 
-  // Admin:
-  // /pos?branchId=BRANCH_ID
-  //
-  // Manager / Sales Assistant:
-  // /pos
-  //
-  // For Manager/Sales Assistant, branchId will be undefined
-  // and the server will automatically use their session branch.
   const branchId = searchParams.get('branchId') || undefined;
 
   const [products, setProducts] = useState<Product[]>([]);
@@ -101,12 +100,6 @@ export default function SalesAssistantPage() {
         setIsLoading(true);
         setLoadError('');
 
-        // Admin:
-        // Gets products from the selected branch.
-        //
-        // Manager/Sales Assistant:
-        // branchId is undefined, so the server gets
-        // the branch from their session.
         const result = await getPosCatalog(branchId);
 
         if (result.success) {
@@ -295,17 +288,9 @@ export default function SalesAssistantPage() {
       setIsProcessingSale(true);
       setSaleError('');
 
-      // ===================================================
-      // PROCESS SALE
-      // ===================================================
-
       const result = await processSale({
         staffId,
 
-        // IMPORTANT:
-        // Admin sends the selected branch.
-        // Manager/Sales Assistant sends undefined,
-        // so the server gets their branch from session.
         branchId,
 
         paymentMethod,
@@ -322,21 +307,11 @@ export default function SalesAssistantPage() {
         return;
       }
 
-      // ===================================================
-      // REFRESH CATALOG
-      // ===================================================
-
-      // IMPORTANT:
-      // Refresh the currently selected branch.
       const catalogResult = await getPosCatalog(branchId);
 
       if (catalogResult.success) {
         setProducts(catalogResult.data ?? []);
       }
-
-      // ===================================================
-      // RESET SALE
-      // ===================================================
 
       setCart([]);
       setAmountTendered('');
@@ -789,5 +764,27 @@ export default function SalesAssistantPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// ============================================================
+// Default export — wraps the search-params-dependent content
+// in Suspense, as Next.js App Router requires.
+// ============================================================
+
+export default function PosPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-slate-100">
+          <div className="text-center">
+            <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-slate-600 font-medium">Loading POS...</p>
+          </div>
+        </div>
+      }
+    >
+      <SalesAssistantPageContent />
+    </Suspense>
   );
 }

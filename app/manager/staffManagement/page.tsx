@@ -253,19 +253,28 @@ export default function StaffManagementPage() {
         return;
       }
 
+      if (result.pending) {
+        alert('Status change submitted for admin approval.');
+        return;
+      }
+
+      // Pull the value out into its own explicitly-typed variable
+      // BEFORE building the new array — this sidesteps any narrowing
+      // quirk across the setStaff callback closure.
+      const newStatus = result.data?.status as
+        | 'ACTIVE'
+        | 'SUSPENDED'
+        | undefined;
+
       setStaff((currentStaff) =>
         currentStaff.map((staffMember) =>
           staffMember.id === person.id
-            ? {
-                ...staffMember,
-                status: result.data?.status ?? staffMember.status,
-              }
+            ? { ...staffMember, status: newStatus ?? staffMember.status }
             : staffMember,
         ),
       );
     } catch (error) {
       console.error('Error updating staff status:', error);
-
       alert('Failed to update staff status. Please try again.');
     }
   };

@@ -225,23 +225,40 @@ export default function AdminStaffManagement() {
   };
 
   const handleToggleStatus = async (person: Staff) => {
-    const result = await toggleStaffStatus(person.id, person.status);
+    try {
+      const result = await toggleStaffStatus(person.id, person.status);
 
-    if (!result.success) {
-      alert(result.error);
-      return;
+      if (!result.success) {
+        alert(result.error);
+        return;
+      }
+
+      // IMPORTANT: when this is queued (MANAGER path), `result.data`
+      // is a PendingAction row, not a staff record — it has its OWN
+      // `status` field ('PENDING'/'APPROVED'/'REJECTED'), which must
+      // never be written onto the staff member's ACTIVE/SUSPENDED
+      // status. Bail out before touching state in that case.
+      if (result.pending) {
+        alert('Status change submitted for admin approval.');
+        return;
+      }
+
+      setStaff((currentStaff) =>
+        currentStaff.map((staffMember) =>
+          staffMember.id === person.id
+            ? {
+                ...staffMember,
+                status:
+                  (result.data as { status?: 'ACTIVE' | 'SUSPENDED' })
+                    ?.status ?? staffMember.status,
+              }
+            : staffMember,
+        ),
+      );
+    } catch (error) {
+      console.error('Error updating staff status:', error);
+      alert('Failed to update staff status. Please try again.');
     }
-
-    setStaff((current) =>
-      current.map((member) =>
-        member.id === person.id
-          ? {
-              ...member,
-              status: result.data?.status ?? member.status,
-            }
-          : member,
-      ),
-    );
   };
 
   if (isLoading) {
